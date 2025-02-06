@@ -1,0 +1,99 @@
+import spacy
+import PyPDF2
+import re
+import sqlite3
+from collections import Counter
+from nltk.tokenize import word_tokenize
+from nltk.corpus import stopwords
+
+# Load NLP model
+nlp = spacy.load("en_core_web_sm")
+
+# Sample skill list (can be expanded)
+SKILL_LIST = {"python", "java", "c++", "machine learning", "data analysis", "nlp", "deep learning",
+              "excel", "sql", "html", "css", "javascript", "react", "flask", "django"}
+
+# Database setup
+conn = sqlite3.connect("resume_analysis.db")
+cursor = conn.cursor()
+cursor.execute('''CREATE TABLE IF NOT EXISTS resumes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT,
+                    skills TEXT
+                )''')
+conn.commit()
+
+def extract_text_from_pdf(pdf_path):
+    """Extract text from a PDF file."""
+    text = ""
+    try:
+        with open(pdf_path, "rb") as pdf_file:
+            reader = PyPDF2.PdfReader(pdf_file)
+            for page in reader.pages:
+                text += page.extract_text() + "\n"
+    except Exception as e:
+        print("Error reading PDF:", e)
+    return text
+
+def extract_skills(text):
+    """Extract skills from text using NLP."""
+    text = text.lower()
+    doc = nlp(text)
+    words = word_tokenize(text)
+    filtered_words = [word for word in words if word not in stopwords.words("english")]
+    
+    extracted_skills = {word for word in filtered_words if word in SKILL_LIST}
+    return extracted_skills
+
+def match_job_description(resume_skills, job_description):
+    """Compare extracted resume skills with job requirements."""
+    job_skills = extract_skills(job_description)
+    common_skills = resume_skills.intersection(job_skills)
+    match_percentage = (len(common_skills) / len(job_skills)) * 100 if job_skills else 0
+    
+    return match_percentage, common_skills
+
+def save_resume(name, skills):
+    """Save resume details into the database."""
+    cursor.execute("INSERT INTO resumes (name, skills) VALUES (?, ?)", (name, ", ".join(skills)))
+    conn.commit()
+    print(f"Resume for {name} saved successfully!")
+
+def main():
+    """Main menu for user interaction."""
+    while True:
+        print("\n📌 Options: 1) Upload Resume  2) Compare with Job  3) View Resumes  4) Exit")
+        choice = input("Enter your choice: ").strip()
+        
+        if choice == "1":
+            pdf_path = input("Enter resume PDF path: ").strip()
+            resume_text = extract_text_from_pdf(pdf_path)
+            name = input("Enter candidate name: ").strip()
+            skills = extract_skills(resume_text)
+            save_resume(name, skills)
+            print(f"Extracted Skills: {skills}")
+        
+        elif choice == "2":
+            resume_skills = set(input("Enter extracted resume skills (comma-separated): ").lower().split(", "))
+            job_desc = input("Enter job description: ").strip()
+            match_percent, matched_skills = match_job_description(resume_skills, job_desc)
+            print(f"\n🔍 Match Percentage: {match_percent:.2f}%")
+            print(f"✔ Matched Skills: {matched_skills}")
+        
+        elif choice == "3":
+            cursor.execute("SELECT * FROM resumes")
+            rows = cursor.fetchall()
+            print("\n📄 Stored Resumes")
+            for row in rows:
+                print(f"ID: {row[0]} | Name: {row[1]} | Skills: {row[2]}")
+        
+        elif choice == "4":
+            print("Exiting Resume Analyzer. Goodbye!")
+            break
+        
+        else:
+            print("Invalid choice. Please try again.")
+
+# Run the program
+if __name__ == "__main__":
+    main()
